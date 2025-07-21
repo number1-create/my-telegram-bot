@@ -1,0 +1,5 @@
+python-telegram-bot
+openai
+python-dotenv  # Utile per caricare le variabili d'ambiente in locale
+uvicorn        # Server ASGI per far girare il nostro webhook
+fastapi        # Framework web per creare l'endpoint del webhook
