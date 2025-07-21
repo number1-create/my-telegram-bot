@@ -3,7 +3,7 @@ import logging
 import openai
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 import uvicorn
 
 # --- CONFIGURAZIONE e VARIABILI D'AMBIENTE ---
