@@ -6,6 +6,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from fastapi import FastAPI, Request
 import uvicorn
 
+# ... (tutta la parte di configurazione iniziale rimane identica) ...
 # --- CONFIGURAZIONE e VARIABILI D'AMBIENTE ---
 from dotenv import load_dotenv
 load_dotenv()
@@ -22,21 +23,16 @@ AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY")
 AZURE_OPENAI_DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-# --- Validazione delle variabili d'ambiente all'avvio ---
-# AGGIUNTO: Un controllo per assicurarsi che le variabili essenziali siano impostate.
-# Questo aiuta a fare debug più velocemente.
 if not all([TELEGRAM_TOKEN, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_KEY, AZURE_OPENAI_DEPLOYMENT_NAME, WEBHOOK_URL]):
     logger.critical("ERRORE: Una o più variabili d'ambiente non sono state impostate. Il bot non può avviarsi.")
-    exit()
+    exit(1)
 
-# --- Configurazione del Client OpenAI per Azure ---
 client = openai.AzureOpenAI(
     azure_endpoint=AZURE_OPENAI_ENDPOINT,
     api_key=AZURE_OPENAI_KEY,
     api_version="2023-12-01-preview"
 )
 
-# --- FUNZIONI DEL BOT ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Ciao! Sono un assistente basato su Azure OpenAI. Come posso aiutarti?")
 
@@ -59,68 +55,66 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ai_response = await get_ai_response(update.message.text)
     await update.message.reply_text(ai_response)
 
-# --- CONFIGURAZIONE WEBHOOK (con FastAPI) ---
-
-# Inizializza l'applicazione Telegram
-# MODIFICATO: Inizializziamo l'applicazione ma senza il blocco `async with` qui.
-# Sarà gestita dagli eventi di startup/shutdown di FastAPI.
 telegram_app = Application.builder().token(TELEGRAM_TOKEN).build()
 telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# Inizializza l'applicazione web FastAPI
 fastapi_app = FastAPI()
 
-# AGGIUNTO: Evento di startup di FastAPI
-# Questo codice viene eseguito UNA SOLA VOLTA, quando Uvicorn avvia l'applicazione.
+# --- MODIFICATO: Startup Event ---
 @fastapi_app.on_event("startup")
 async def startup_event():
-    await telegram_app.initialize() # Inizializza l'app di telegram
-    webhook_info = await telegram_app.bot.get_webhook_info()
-    
-    # Imposta il webhook solo se non è già impostato correttamente
+    """
+    MODIFICATO: Rimuoviamo il controllo e impostiamo il webhook OGNI VOLTA che il server parte.
+    Questo "pulisce" qualsiasi configurazione vecchia o errata sui server di Telegram.
+    """
+    await telegram_app.initialize()
     webhook_full_url = f"{WEBHOOK_URL}/{TELEGRAM_TOKEN}"
-    if webhook_info.url != webhook_full_url:
-        await telegram_app.bot.set_webhook(url=webhook_full_url)
-        logger.info(f"Webhook impostato su {webhook_full_url}")
-    else:
-        logger.info(f"Webhook già impostato correttamente su {webhook_info.url}")
+    
+    logger.info(f"Forzando l'impostazione del webhook su: {webhook_full_url}")
+    await telegram_app.bot.set_webhook(url=webhook_full_url, allowed_updates=Update.ALL_TYPES)
+    # Controlliamo che sia stato impostato correttamente dopo la nostra chiamata
+    webhook_info = await telegram_app.bot.get_webhook_info()
+    logger.info(f"Webhook ora impostato su: {webhook_info.url}")
 
-# AGGIUNTO: Evento di shutdown di FastAPI
-# Questo codice viene eseguito quando il server si spegne in modo pulito.
+
 @fastapi_app.on_event("shutdown")
 async def shutdown_event():
     logger.info("Spegnimento del server, pulizia del webhook...")
     await telegram_app.bot.delete_webhook()
-    await telegram_app.shutdown() # Chiude correttamente l'app di telegram
+    await telegram_app.shutdown()
 
+# --- MODIFICATO: Endpoint Webhook ---
 @fastapi_app.post(f"/{TELEGRAM_TOKEN}")
 async def telegram_webhook(request: Request):
-    update_data = await request.json()
-    # MODIFICATO: Usiamo il context manager per processare l'update in modo sicuro
-    async with telegram_app:
-        update = Update.de_json(data=update_data, bot=telegram_app.bot)
-        await telegram_app.process_update(update)
-    return {"status": "ok"}
+    """Endpoint che riceve gli aggiornamenti da Telegram."""
+    # AGGIUNTO: Log di diagnostica per essere sicuri che la richiesta arrivi
+    logger.info("Webhook ricevuto! Inizio elaborazione...")
+    try:
+        update_data = await request.json()
+        logger.info(f"Dati ricevuti: {update_data}") # Log opzionale ma utile
+        
+        async with telegram_app:
+            update = Update.de_json(data=update_data, bot=telegram_app.bot)
+            await telegram_app.process_update(update)
+        
+        logger.info("Elaborazione completata con successo.")
+        return {"status": "ok"}
+    except Exception as e:
+        # Se qualcosa va storto qui, lo vedremo nei log
+        logger.error(f"Errore durante l'elaborazione del webhook: {e}")
+        return {"status": "error"}
 
 @fastapi_app.get("/")
 async def index():
+    """Endpoint di controllo per vedere se il server è attivo."""
     return "Ciao! Sono il server del bot, sono attivo e funzionante."
 
-# RIMOSSO: La funzione main() non è più necessaria in questa forma.
-# L'avvio è gestito da Uvicorn e gli eventi di startup/shutdown.
-
-# RIMOSSO/MODIFICATO: Il blocco if __name__ == "__main__"
-# Ora serve solo per il testing locale, in un modo più standard.
+# ... (il blocco if __name__ == "__main__" rimane uguale)
 if __name__ == "__main__":
-    # Per avviare in locale:
-    # 1. Crea un file .env con le tue chiavi.
-    # 2. Assicurati che WEBHOOK_URL nel .env punti a un tunnel (es. ngrok).
-    # 3. Esegui questo file: python bot.py
-    # uvicorn si occuperà di avviare l'app e gli eventi di startup/shutdown.
     uvicorn.run(
         "bot:fastapi_app",
         host="0.0.0.0",
         port=8000,
-        reload=True # `reload=True` è ottimo per lo sviluppo locale
+        reload=True
     )
