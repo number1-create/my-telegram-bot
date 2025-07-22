@@ -48,7 +48,7 @@ TEST_LINKS = [
     "https://www.amazon.com/review/create-review/ref=...&asin=LINK3",
 ]
 # Path del file PDF della guida ufficiale
-GUIDE_PDF_PATH = "Official_Guide.pdf" # Assicurati che questo file sia nella stessa cartella del bot
+GUIDE_PDF_PATH = "Arc Team Guide & Policy (1).pdf" # Assicurati che questo file sia nella stessa cartella del bot
 
 # --- FUNZIONI DI LOGICA PRINCIPALE ---
 
