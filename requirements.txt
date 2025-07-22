@@ -1,4 +1,8 @@
-python-telegram-bot[persistence]
+# Telegram Bot e le sue dipendenze dirette
+python-telegram-bot
+APScheduler
+
+# Altre librerie necessarie
 fastapi
 uvicorn
 python-dotenv
