@@ -161,7 +161,8 @@ Here's what to do:
 
 You have 24 hours to complete this test. After that, your application spot may be given to another candidate to ensure fairness for everyone.
 
-I'm here to help if you have any questions. Looking forward to having you on board!"""
+I'm here to help if you have any questions. Looking forward to having you on board!
+"""
     await update.message.reply_text(welcome_message)
     
     # Programma i job di sollecito e scadenza
