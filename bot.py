@@ -271,21 +271,20 @@ telegram_app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, dispatch
 # Inizializza l'applicazione web FastAPI
 fastapi_app = FastAPI()
 
-# MODIFICATO: Gestione del ciclo di vita per evitare l'errore 'HTTPXRequest not initialized'
+# NUOVO CODICE - CORRETTO
 @fastapi_app.on_event("startup")
 async def startup_event():
     await telegram_app.initialize()
     await telegram_app.bot.set_webhook(url=f"{WEBHOOK_URL}/{TELEGRAM_TOKEN}", allowed_updates=Update.ALL_TYPES)
-    # Avviamo la JobQueue SOLO dopo aver inizializzato l'app
-    if not telegram_app.job_queue.running:
-        await telegram_app.job_queue.start()
+    # Avviamo la JobQueue. È sicuro chiamarlo direttamente.
+    await telegram_app.job_queue.start()
     logger.info("Bot started and webhook set.")
 
+# NUOVO CODICE - CORRETTO
 @fastapi_app.on_event("shutdown")
 async def shutdown_event():
-    # Stoppiamo la JobQueue PRIMA di chiudere l'app
-    if telegram_app.job_queue.running:
-        await telegram_app.job_queue.stop()
+    # Stoppiamo la JobQueue. È sicuro chiamarlo direttamente.
+    await telegram_app.job_queue.stop()
     await telegram_app.shutdown()
     logger.info("Bot shutdown.")
 
