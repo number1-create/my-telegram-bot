@@ -11,6 +11,7 @@ from telegram.ext import (
     PersistenceInput,
     BasePersistence,
     PicklePersistence,
+    JobQueue,
 )
 from fastapi import FastAPI, Request
 import uvicorn
@@ -249,24 +250,42 @@ async def dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE):
              await update.message.reply_text("I've received your submission and it's in the queue for review. I'll get back to you here. Thanks for your patience!")
 
 # --- CONFIGURAZIONE E AVVIO (FastAPI & Uvicorn) ---
+# MODIFICATO: Inizializzazione separata per un controllo migliore
 persistence = PicklePersistence(filepath="./bot_persistence")
-telegram_app = Application.builder().token(TELEGRAM_TOKEN).persistence(persistence).build()
+# MODIFICATO: Creiamo il builder ma non l'applicazione ancora
+app_builder = Application.builder().token(TELEGRAM_TOKEN).persistence(persistence)
 
-# Un unico handler che gestisce tutto
+# MODIFICATO: Creiamo e associamo la JobQueue esplicitamente
+job_queue = JobQueue()
+app_builder.job_queue(job_queue)
+
+# Ora costruiamo l'applicazione
+telegram_app = app_builder.build()
+job_queue.set_application(telegram_app) # Colleghiamo la JobQueue all'app
+
+# Aggiungiamo l'handler
 telegram_app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, dispatcher))
 
+# Inizializza l'applicazione web FastAPI
 fastapi_app = FastAPI()
 
+# MODIFICATO: Gestione del ciclo di vita per evitare l'errore 'HTTPXRequest not initialized'
 @fastapi_app.on_event("startup")
 async def startup_event():
     await telegram_app.initialize()
-    webhook_full_url = f"{WEBHOOK_URL}/{TELEGRAM_TOKEN}"
-    await telegram_app.bot.set_webhook(url=webhook_full_url, allowed_updates=Update.ALL_TYPES)
-    logger.info(f"Webhook impostato su {webhook_full_url}")
+    await telegram_app.bot.set_webhook(url=f"{WEBHOOK_URL}/{TELEGRAM_TOKEN}", allowed_updates=Update.ALL_TYPES)
+    # Avviamo la JobQueue SOLO dopo aver inizializzato l'app
+    if not telegram_app.job_queue.running:
+        await telegram_app.job_queue.start()
+    logger.info("Bot started and webhook set.")
 
 @fastapi_app.on_event("shutdown")
 async def shutdown_event():
+    # Stoppiamo la JobQueue PRIMA di chiudere l'app
+    if telegram_app.job_queue.running:
+        await telegram_app.job_queue.stop()
     await telegram_app.shutdown()
+    logger.info("Bot shutdown.")
 
 @fastapi_app.post(f"/{TELEGRAM_TOKEN}")
 async def telegram_webhook(request: Request):
