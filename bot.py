@@ -76,7 +76,22 @@ async def get_ai_response(user_id: int, user_message: str, context: ContextTypes
     # Costruiamo il System Prompt dinamicamente
     system_prompt = f"""
     # IDENTITY AND ROLE
-You are Luciano, the Review Manager for the ARC Team. You are a human, not a bot. Your communication style is professional, friendly, encouraging, and clear. You must communicate exclusively in American English. Your primary goal is to guide new applicants through the initial eligibility test.
+    You are Luciano, the Review Manager for the ARC Team. You are a human, never a bot or AI. Your communication style is professional, encouraging, and crystal clear. You use American English exclusively. Your mission is to guide new applicants through a one-time eligibility test.
+
+# USER CONTEXT
+- **User's First Name:** {user_first_name}
+- **User's Current State:** {user_state}
+- **User's Assigned Test Link:** {active_link}
+
+# KNOWLEDGE BASE & FAQ
+You must answer questions based on this exact knowledge.
+
+- **"Where do I send the screenshot?"**: The user should send it directly to you in this chat.
+- **"Where is the link?" / "Link not working?"**: The test link was in your first message. Re-paste it for them by referencing the `{active_link}` variable. Tell them it's a unique link to the Amazon test page.
+- **"How/when do I get paid?"**: Explain that this first test review is an *unpaid eligibility check*. Payments for the main program happen after reviewing a batch of 3 books. You can offer to send the official guide for more details by including the special string `[SEND_GUIDE_PDF]` in your response.
+- **"Amazon won't let me leave a review"**: This is usually due to Amazon's minimum spend requirement. The user's best option is to use an account from a friend or family member that is eligible. Advise against making purchases just to qualify.
+- **"Can I refer people?"**: Yes, for $2 per successful referral. A referral is successful only after they pass the same test (screenshot + valid TG username). Mention that more details will be provided after they join.
+- **"Where is the submit button?"**: Explain that the `/submit` command is a feature of the *main program* inside the private channel. Gently refocus them on the current task: sending the screenshot for this test.
 
 # KNOWLEDGE BASE
 - **Active Test Link for this user:** {active_link}
@@ -89,6 +104,20 @@ You keep track of each user's state.
 ## STATE: AWAITING_SCREENSHOT
 - **Your Primary Goal:** Gently guide the user to submit the screenshot.
 - **Your Secondary Goal:** Be genuinely helpful. If the user is confused or asks for help, DO NOT just repeat the primary goal. Instead, break down the task for them and address their specific question.
+- After answering, always nudge them back to the main task. Example: "...so for now, let's just focus on getting that screenshot sent over."
+
+## STATE: awaiting_username
+- The user has already sent a screenshot. Do not talk about the screenshot anymore.
+- Your only goal is to get their public, all-lowercase Telegram username.
+- If they ask why, explain it's so the manager can find them and add them to the private channel.
+
+## STATE: awaiting_verification
+- The user has completed all steps.
+- Your only response should be a polite message confirming that everything has been received and is under review. Example: "I've got everything I need! Your application is now with our team for final review. We'll get back to you here shortly. Thanks for your patience!"
+
+## STATE: expired
+- The user took more than 24 hours.
+- Politely but firmly inform them that the window has closed and the spot was given to someone else. Do not offer another chance.
 
 - **Handling User Questions:**
     - **If the user asks "how does this work?" or "what do I do?":** Don't just say "send the screenshot". Explain the steps simply. Example: "Of course! Here’s a simple breakdown: 1. First, click the link I sent you to go to the Amazon review page. 2. Write a short, positive review there. 3. Once it's submitted, just take a screenshot of it and send it back to me in this chat. Let me know which step you're stuck on!"
@@ -169,35 +198,128 @@ I'm here to help if you have any questions. Looking forward to having you on boa
     context.job_queue.run_once(reminder_job, 23 * 3600, chat_id=chat_id, user_id=user_id, name=f"reminder_{user_id}", data={'first_name': user.first_name})
     context.job_queue.run_once(expiration_job, 24 * 3600, chat_id=chat_id, user_id=user_id, name=f"expire_{user_id}")
 
+# --- NUOVA VERSIONE DI handle_photo ---
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Gestisce la ricezione di uno screenshot."""
+    """
+    Gestisce la ricezione dello screenshot.
+    NUOVO FLUSSO: Chiede l'username di Telegram invece di notificare l'admin.
+    """
     user = update.effective_user
-    user_id = user.id
+    context.user_data['photo_message_id'] = update.message.message_id
+    logger.info(f"Photo received from user {user.id}. Now asking for username.")
     
-    logger.info(f"Photo received from user {user_id}")
+    # 1. Cambia lo stato per aspettare l'username
+    context.user_data['state'] = 'awaiting_username'
     
-    # Cambia stato
-    context.user_data['state'] = 'awaiting_verification'
-    
-    # Rimuovi i job di sollecito/scadenza perché non più necessari
-    current_jobs = context.job_queue.get_jobs_by_name(f"reminder_{user_id}")
+    # 2. Rimuovi i job di sollecito/scadenza
+    current_jobs = context.job_queue.get_jobs_by_name(f"reminder_{user.id}")
     for job in current_jobs:
         job.schedule_removal()
-    current_jobs = context.job_queue.get_jobs_by_name(f"expire_{user_id}")
+    current_jobs = context.job_queue.get_jobs_by_name(f"expire_{user.id}")
     for job in current_jobs:
         job.schedule_removal()
+
+    # 3. Invia il messaggio di richiesta dell'username
+    username_request_message = """Great, I've received your screenshot!
+
+    Just one final step: please send me your Telegram username.
+    
+    **IMPORTANT:**
+    1.  Your username must be **public**.
+    2.  It must be written in **all lowercase letters** (e.g., @johndoe, not @JohnDoe).
+    
+    This is crucial so our manager can find you and add you to the private channel.
+    
+    **--> How to set up your public username:**
+    Go to Telegram Settings > Edit Profile > Username. If it's empty, create one. Make sure it's all lowercase!
+    
+    Please type and send your username below."""
         
-    await update.message.reply_text("Thanks! I've received your screenshot. I will personally review it shortly. I'll get back to you right here as soon as it's verified. This usually takes just a few hours.")
+    await update.message.reply_text(username_request_message)
+
     
     # Invia notifica all'admin
     if ADMIN_CHAT_ID:
         try:
-            admin_notification = f"📸 Screenshot received from user {user.full_name} (@{user.username}, ID: {user_id}). Ready for verification."
+            admin_notification = f"📸 Screenshot received from user {user.full_name} (@{user.username}, ID: {user.id}). Ready for verification."
             await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=admin_notification)
             # Inoltra anche la foto per una verifica più rapida
             await context.bot.forward_message(chat_id=ADMIN_CHAT_ID, from_chat_id=update.effective_chat.id, message_id=update.message.message_id)
         except Exception as e:
             logger.error(f"Failed to send notification to admin: {e}")
+
+# --- NUOVA FUNZIONE: handle_username ---
+async def handle_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Gestisce la ricezione e la validazione dell'username di Telegram.
+    Se valido, invia la notifica completa all'admin.
+    """
+    user = update.effective_user
+    username_text = update.message.text.strip() # Rimuove spazi extra
+    
+    
+    # --- Validazione dell'Username ---
+    # 1. Deve iniziare con '@'
+    # 2. Deve essere tutto minuscolo
+    # 3. Deve essere lungo almeno 6 caratteri (@ + 5)
+    if (not username_text.startswith('@') or
+        not username_text[1:].islower() or
+        len(username_text) < 6):
+        
+        validation_error_message = """It seems there's a small issue with the username. Please double-check:
+
+- It must start with **@**
+- It must be **all lowercase**
+- It must be at least 5 characters long (plus the @)
+
+For example: `@johndoe`
+
+Please try sending it again."""
+        await update.message.reply_text(validation_error_message)
+        return # Esce dalla funzione, aspettando un nuovo tentativo dall'utente
+
+    # --- Se la validazione passa ---
+    logger.info(f"Username {username_text} received and validated for user {user.id}.")
+    
+    # 1. Salva l'username e cambia lo stato finale
+    context.user_data['telegram_username'] = username_text
+    context.user_data['state'] = 'awaiting_verification'
+
+    # 2. Messaggio di conferma all'utente
+    await update.message.reply_text("Perfect, thank you! I've got everything I need. Your application is now with our team for final review. We'll get back to you here shortly. Thanks for your patience!")
+
+    # 3. Invia la notifica completa all'admin
+    if ADMIN_CHAT_ID:
+        try:
+            # Recupera l'ID del messaggio della foto per inoltrarlo
+            # Nota: questo è un approccio semplificato. Funziona se la foto è stata l'ultimo messaggio.
+            # Per renderlo robusto, dovremmo salvare il message_id della foto in user_data.
+            # Per ora, manteniamolo semplice.
+            admin_notification = f"""✅ New Applicant Ready for Verification ✅
+
+**User:** {user.full_name}
+**User ID:** `{user.id}`
+**Provided TG Username:** `{username_text}`
+
+Screenshot is attached below.
+"""
+            # Invia la notifica di testo
+            await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=admin_notification, parse_mode='Markdown')
+            
+            # Ora inoltra la foto (assumiamo che possiamo trovarla, potremmo doverla salvare)
+            # Per renderlo affidabile, modifichiamo un attimo handle_photo
+            photo_message_id = context.user_data.get('photo_message_id')
+            if photo_message_id:
+                await context.bot.forward_message(chat_id=ADMIN_CHAT_ID, from_chat_id=update.effective_chat.id, message_id=photo_message_id)
+            else:
+                 await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text="Error: Could not retrieve screenshot message ID to forward.")
+
+        except Exception as e:
+            logger.error(f"Failed to send final notification to admin: {e}")
+
+# Per far funzionare l'inoltro della foto, facciamo una piccola aggiunta a handle_photo
+# Torna a handle_photo e aggiungi questa riga dopo aver definito l'utente:
+# context.user_data['photo_message_id'] = update.message.message_id
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Gestisce i messaggi di testo degli utenti in stato 'awaiting_screenshot'."""
@@ -226,16 +348,17 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         await update.message.reply_text(ai_response)
         
+# --- NUOVA VERSIONE DEL dispatcher ---
 async def dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Funzione principale che smista i messaggi in base allo stato."""
     user_state = context.user_data.get('state', 'new_user')
     
-    # Se è un nuovo utente, avvia la procedura
-    if user_state == 'new_user':
+    # Gestisce qualsiasi messaggio di un nuovo utente
+    if user_state == 'new_user' and update.message.text:
         await handle_new_user(update, context)
         return
 
-    # Se l'utente è in attesa di inviare lo screenshot
+    # Stato: in attesa dello screenshot
     if user_state == 'awaiting_screenshot':
         if update.message.photo:
             await handle_photo(update, context)
@@ -243,13 +366,21 @@ async def dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await handle_text_message(update, context)
         else:
             await update.message.reply_text("Please send me your screenshot to continue, or ask a question if you're stuck!")
+
+    # NUOVO STATO: in attesa dell'username
+    elif user_state == 'awaiting_username':
+        if update.message.text:
+            await handle_username(update, context)
+        else:
+            await update.message.reply_text("Please send me your Telegram username as plain text to continue.")
             
-    # Se l'utente è in attesa di verifica o scaduto, l'AI darà una risposta generica
+    # Stato: in attesa di verifica o scaduto
     elif user_state in ['awaiting_verification', 'expired']:
         if update.message.text:
+            # L'AI gestirà la risposta basandosi sul prompt aggiornato
             await handle_text_message(update, context)
         else:
-             await update.message.reply_text("I've received your submission and it's in the queue for review. I'll get back to you here. Thanks for your patience!")
+             await update.message.reply_text("I've received your submission and it's in the queue for review. Thanks for your patience!")
 
 # --- CONFIGURAZIONE E AVVIO (FastAPI & Uvicorn) ---
 # MODIFICATO: Inizializzazione separata per un controllo migliore
