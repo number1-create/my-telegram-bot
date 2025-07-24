@@ -43,9 +43,10 @@ client = openai.AzureOpenAI(
 # --- DATI SPECIFICI DEL BOT (Personalizza qui!) ---
 # Lista di link di test. Il bot li assegnerà a rotazione.
 TEST_LINKS = [
-    "https://www.amazon.com/review/create-review/ref=...&asin=LINK1",
-    "https://www.amazon.com/review/create-review/ref=...&asin=LINK2",
-    "https://www.amazon.com/review/create-review/ref=...&asin=LINK3",
+    "https://www.amazon.com/review/create-review/ref=cm_cr_dp_d_wr_but_top?ie=UTF8&channel=glance-detail&asin=B0DST3L9WP",
+    "https://www.amazon.com/review/create-review/ref=cm_cr_dp_d_wr_but_top?ie=UTF8&channel=glance-detail&asin=B0DRG93HJN",
+    "https://www.amazon.com/review/create-review/ref=cm_cr_dp_d_wr_but_top?ie=UTF8&channel=glance-detail&asin=B0DRSKDRXP",
+    "https://www.amazon.com/review/create-review/ref=cm_cr_dp_d_wr_but_top?ie=UTF8&channel=glance-detail&asin=B0DYWRSSF6",
 ]
 # Path del file PDF della guida ufficiale
 GUIDE_PDF_PATH = "Arc Team Guide & Policy (1).pdf" # Assicurati che questo file sia nella stessa cartella del bot
