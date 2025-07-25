@@ -352,7 +352,11 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 # --- NUOVA VERSIONE DEL dispatcher ---
 async def dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Funzione principale che smista i messaggi in base allo stato."""
+    user = update.effective_user
     user_state = context.user_data.get('state', 'new_user')
+
+    message_type = "text" if update.message.text else "photo" if update.message.photo else "other"
+    logger.info(f"[INPUT] User: {user.id} ({user.full_name}) | State: {user_state} | Type: {message_type}")
     
     # Gestisce qualsiasi messaggio di un nuovo utente
     if user_state == 'new_user' and update.message.text:
