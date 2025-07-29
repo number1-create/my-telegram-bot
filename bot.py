@@ -47,6 +47,7 @@ TEST_LINKS = [
     "https://www.amazon.com/review/create-review/ref=cm_cr_dp_d_wr_but_top?ie=UTF8&channel=glance-detail&asin=B0DRG93HJN",
     "https://www.amazon.com/review/create-review/ref=cm_cr_dp_d_wr_but_top?ie=UTF8&channel=glance-detail&asin=B0DRSKDRXP",
     "https://www.amazon.com/review/create-review/ref=cm_cr_dp_d_wr_but_top?ie=UTF8&channel=glance-detail&asin=B0DYWRSSF6",
+    "https://www.amazon.com/review/create-review/ref=cm_cr_dp_d_wr_but_top?ie=UTF8&channel=glance-detail&asin=B0DP7K9D4T",
 ]
 # Path del file PDF della guida ufficiale
 GUIDE_PDF_PATH = "Arc Team Guide & Policy (1).pdf" # Assicurati che questo file sia nella stessa cartella del bot
