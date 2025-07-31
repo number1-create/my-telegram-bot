@@ -157,6 +157,7 @@ async def test_google_sheets_connection():
     logger.info("SHEETS_TEST: Inizio del test di connessione a Google Sheets.")
     
     try:
+        raise ValueError("Questo è un test di errore intenzionale.")
         # Definiamo gli "scopes" - i permessi che richiediamo alle API di Google.
         scopes = [
             "https://www.googleapis.com/auth/spreadsheets",
