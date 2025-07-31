@@ -18,6 +18,7 @@ import uvicorn
 from dotenv import load_dotenv
 import gspread
 from google.oauth2.service_account import Credentials
+import json
 
 # --- CONFIGURAZIONE e VARIABILI D'AMBIENTE ---
 load_dotenv()
@@ -162,26 +163,19 @@ def test_google_sheets_connection():
             "https://www.googleapis.com/auth/drive.file"
         ]
         
-        # Carichiamo le credenziali dal file JSON che si trova nella stessa cartella.
-        creds = Credentials.from_service_account_file("credentials.json", scopes=scopes)
-        
-        # Usiamo le credenziali per autorizzare gspread.
-        client_gspread = gspread.authorize(creds)
-        
-        # Apriamo il foglio di calcolo usando il suo NOME ESATTO.
-        # Assicurati che "ARC TEAM DATI" sia scritto esattamente come il nome del tuo file.
-        spreadsheet = client_gspread.open("ARC TEAM DATI") 
-        
-        # Selezioniamo il primo foglio di lavoro all'interno del file.
-        worksheet = spreadsheet.sheet1
-        
-        # Leggiamo il valore di una cella specifica (A1) per confermare la lettura.
-        valore_cella = worksheet.acell('A1').value
-        
-        # Se tutte le righe sopra funzionano, il test è superato.
-        logger.info(f"SHEETS_TEST: SUCCESSO! Connessione stabilita. Il valore in A1 è: '{valore_cella}'")
-        return True
+# 1. Leggi la variabile d'ambiente che contiene il JSON come stringa
+google_creds_json_str = os.getenv("GOOGLE_CREDENTIALS_JSON")
+if not google_creds_json_str:
+    logger.error("SHEETS_TEST: ERRORE CRITICO! La variabile d'ambiente 'GOOGLE_CREDENTIALS_JSON' non è stata trovata o è vuota.")
+    return False
 
+# 2. Converti la stringa JSON in un dizionario Python
+google_creds_dict = json.loads(google_creds_json_str)
+
+# 3. Usa il dizionario per creare le credenziali
+creds = Credentials.from_service_account_info(google_creds_dict, scopes=scopes)
+# --- FINE DEL NUOVO BLOCCO ---
+```*   **Non dimenticare:** vai all'inizio del tuo file `bot.py` e aggiungi `import json` insieme agli altri import.
     except FileNotFoundError:
         # Questo errore si verifica se il file credentials.json non viene trovato.
         logger.error("SHEETS_TEST: ERRORE CRITICO! Il file 'credentials.json' non è stato trovato. Assicurati di averlo caricato su Render nella stessa directory del bot.")
