@@ -7,3 +7,5 @@ fastapi
 uvicorn
 python-dotenv
 openai
+gspread
+google-auth-oauthlib
