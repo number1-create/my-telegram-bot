@@ -331,7 +331,7 @@ async def handle_email_submission(update: Update, context: ContextTypes.DEFAULT_
     logger.info(f"SHEETS_LIVE_TEST: Sto per chiamare find_user_by_email con '{email_text}'")
     user_cell = await find_user_by_email(email_text)
     logger.info(f"SHEETS_LIVE_TEST: La chiamata a find_user_by_email è terminata.")
-        )
+    )
 
     # 4. Assegna il link e salva i dati per il prompt dell'AI
     assigned_link = await get_next_test_link(context)
