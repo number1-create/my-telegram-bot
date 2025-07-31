@@ -9,3 +9,4 @@ python-dotenv
 openai
 gspread
 google-auth-oauthlib
+gspread-asyncio
