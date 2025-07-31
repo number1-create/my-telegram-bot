@@ -235,8 +235,8 @@ async def create_new_user(email: str, telegram_username: str, telegram_id: int):
             "", # K
             "", # L
             
-            # Colonna M: ABILITATO AL BOT (Impostiamo "SI" di default)
-            "SI",
+            # Colonna M: ABILITATO AL BOT (Lasciamo vuoto per ora)
+            "",
             
             # Colonna N: ONBOARDING (Impostiamo lo stato iniziale)
             "IN ATTESA DI TEST", 
