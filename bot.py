@@ -175,7 +175,8 @@ def get_google_creds():
         return None
 
 # Creiamo un gestore del client asincrono che useremo in tutte le nostre funzioni
-#agc_manager = AsyncioGspreadClientManager(get_google_creds)
+
+agc_manager = AsyncioGspreadClientManager(get_google_creds)
 
 async def find_user_by_email(email: str):
     """
@@ -327,20 +328,9 @@ async def handle_email_submission(update: Update, context: ContextTypes.DEFAULT_
     await update.message.reply_text("Perfect, thank you. One moment while I check our records...")
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     
-    # 3. CERCA L'UTENTE NEL FOGLIO GOOGLE
+    logger.info(f"SHEETS_LIVE_TEST: Sto per chiamare find_user_by_email con '{email_text}'")
     user_cell = await find_user_by_email(email_text)
-    
-    if user_cell:
-        # Utente trovato! Aggiorniamo solo il suo stato se necessario
-        logger.info(f"Utente con email {email_text} trovato alla riga {user_cell.row}. Procedo con l'invio del test.")
-        await update_user_status(user_cell.row, "LINK TEST INVIATO")
-    else:
-        # Utente non trovato, dobbiamo crearlo
-        logger.info(f"Utente con email {email_text} non trovato. Procedo con la creazione.")
-        await create_new_user(
-            email=email_text,
-            telegram_username=context.user_data.get('telegram_username', ''),
-            telegram_id=user.id
+    logger.info(f"SHEETS_LIVE_TEST: La chiamata a find_user_by_email è terminata.")
         )
 
     # 4. Assegna il link e salva i dati per il prompt dell'AI
