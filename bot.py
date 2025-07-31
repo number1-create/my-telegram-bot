@@ -18,7 +18,9 @@ import uvicorn
 from dotenv import load_dotenv
 import gspread
 from google.oauth2.service_account import Credentials
+from gspread_asyncio import AsyncioGspreadClientManager
 import json
+
 
 # --- CONFIGURAZIONE e VARIABILI D'AMBIENTE ---
 load_dotenv()
