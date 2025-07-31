@@ -175,7 +175,7 @@ def get_google_creds():
         return None
 
 # Creiamo un gestore del client asincrono che useremo in tutte le nostre funzioni
-agc_manager = AsyncioGspreadClientManager(get_google_creds)
+#agc_manager = AsyncioGspreadClientManager(get_google_creds)
 
 async def find_user_by_email(email: str):
     """
