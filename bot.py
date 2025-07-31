@@ -293,39 +293,80 @@ async def expiration_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 # --- GESTORI DI MESSAGGI (HANDLERS) ---
 
 async def handle_new_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Gestisce il primo contatto di un nuovo utente."""
+    """
+    Gestisce il primo contatto di un nuovo utente.
+    NUOVA LOGICA: Chiede l'email, controlla il foglio Google, e poi procede.
+    """
     user = update.effective_user
-    user_id = user.id
-    chat_id = update.effective_chat.id
+    logger.info(f"Nuovo contatto: {user.full_name} (ID: {user.id}). Inizio procedura di onboarding.")
     
-    logger.info(f"New user contact: {user.full_name} (ID: {user_id})")
+    # 1. Impostiamo uno stato intermedio per sapere che stiamo aspettando l'email
+    context.user_data['state'] = 'awaiting_email'
+    context.user_data['telegram_username'] = f"@{user.username}" if user.username else ""
+    context.user_data['telegram_id'] = user.id
+
+    # 2. Invia il messaggio di richiesta dell'email
+    await update.message.reply_text(
+        "Hi! I'm Luciano, Review Manager for the ARC Team. Welcome!\n\n"
+        "To get started, please send me the email address you used to sign up."
+    )
+
+# --- NUOVA FUNZIONE PER GESTIRE L'EMAIL ---
+async def handle_email_submission(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Gestisce la ricezione dell'email, controlla il foglio e avvia il test.
+    """
+    user = update.effective_user
+    email_text = update.message.text.strip().lower() # Prendiamo l'email e la mettiamo in minuscolo
+
+    # Semplice validazione dell'email (può essere migliorata se necessario)
+    if '@' not in email_text or '.' not in email_text.split('@')[1]:
+        await update.message.reply_text("That doesn't look like a valid email address. Please try again.")
+        return
+
+    await update.message.reply_text("Perfect, thank you. One moment while I check our records...")
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     
-    # Assegna il link e salva lo stato iniziale
+    # 3. CERCA L'UTENTE NEL FOGLIO GOOGLE
+    user_cell = await find_user_by_email(email_text)
+    
+    if user_cell:
+        # Utente trovato! Aggiorniamo solo il suo stato se necessario
+        logger.info(f"Utente con email {email_text} trovato alla riga {user_cell.row}. Procedo con l'invio del test.")
+        await update_user_status(user_cell.row, "LINK TEST INVIATO")
+    else:
+        # Utente non trovato, dobbiamo crearlo
+        logger.info(f"Utente con email {email_text} non trovato. Procedo con la creazione.")
+        await create_new_user(
+            email=email_text,
+            telegram_username=context.user_data.get('telegram_username', ''),
+            telegram_id=user.id
+        )
+
+    # 4. Assegna il link e salva i dati per il prompt dell'AI
     assigned_link = await get_next_test_link(context)
     context.user_data['state'] = 'awaiting_screenshot'
     context.user_data['first_name'] = user.first_name
     context.user_data['assigned_link'] = assigned_link
 
-    # Invia il messaggio di benvenuto e le istruzioni
-    welcome_message = f"""Hi {user.first_name}, I'm Luciano, Review Manager for the ARC Team. Welcome!
+    # 5. Invia il messaggio di benvenuto con le istruzioni per il test
+    welcome_message = f"""Great, I've found you, {user.first_name}!
 
-Great news, you've passed the initial screening to join our ARC team! To be added to our private Telegram channel (where you'll receive early copies of upcoming titles), we first need to confirm that your Amazon account can leave reviews.
-
-Here's what to do:
-1. **Click this link:** {assigned_link}
-2. Leave a 5-star, positive, empowering review on the page. It doesn't have to be long, just a few positive sentences.
-3. Take a screenshot showing your submitted review.
-4. **Reply to this message with your screenshot.**
-
-You have 24 hours to complete this test. After that, your application spot may be given to another candidate to ensure fairness for everyone.
-
-I'm here to help if you have any questions. Looking forward to having you on board!
-"""
-    await update.message.reply_text(welcome_message)
+    To be added to our private Telegram channel, we first need to confirm that your Amazon account can leave reviews.
     
-    # Programma i job di sollecito e scadenza
-    context.job_queue.run_once(reminder_job, 23 * 3600, chat_id=chat_id, user_id=user_id, name=f"reminder_{user_id}", data={'first_name': user.first_name})
-    context.job_queue.run_once(expiration_job, 24 * 3600, chat_id=chat_id, user_id=user_id, name=f"expire_{user_id}")
+    Here's what to do:
+    1. **Click this link:** {assigned_link}
+    2. Leave a 5-star, positive review.
+    3. Take a screenshot showing your submitted review.
+    4. **Reply to this message with your screenshot.**
+    
+    You have 24 hours to complete this test. I'm here to help if you have any questions!
+    """
+    await update.message.reply_text(welcome_message)
+
+    # 6. Programma i job di sollecito e scadenza
+    context.job_queue.run_once(reminder_job, 23 * 3600, chat_id=update.effective_chat.id, user_id=user.id, name=f"reminder_{user.id}", data={'first_name': user.first_name})
+    context.job_queue.run_once(expiration_job, 24 * 3600, chat_id=update.effective_chat.id, user_id=user.id, name=f"expire_{user.id}")
 
 # --- NUOVA VERSIONE DI handle_photo ---
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -490,7 +531,14 @@ async def dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_state == 'new_user' and update.message.text:
         await handle_new_user(update, context)
         return
-
+        
+  # --- NUOVO BLOCCO PER GESTIRE LA SOTTOMISSIONE DELL'EMAIL ---
+    elif user_state == 'awaiting_email':
+        if update.message.text:
+            await handle_email_submission(update, context)
+        else:
+            await update.message.reply_text("Please send me your email address to continue.")
+            
     # Stato: in attesa dello screenshot
     if user_state == 'awaiting_screenshot':
         if update.message.photo:
@@ -538,8 +586,6 @@ fastapi_app = FastAPI()
 # NUOVO CODICE - CORRETTO
 @fastapi_app.on_event("startup")
 async def startup_event():
-    # Eseguiamo il nostro test di connessione come prima cosa
-    await test_google_sheets_connection() # <-- RIGA AGGIUNTA
     
     await telegram_app.initialize()
     await telegram_app.bot.set_webhook(url=f"{WEBHOOK_URL}/{TELEGRAM_TOKEN}", allowed_updates=Update.ALL_TYPES)
