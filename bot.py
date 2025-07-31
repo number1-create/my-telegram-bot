@@ -174,8 +174,7 @@ google_creds_dict = json.loads(google_creds_json_str)
 
 # 3. Usa il dizionario per creare le credenziali
 creds = Credentials.from_service_account_info(google_creds_dict, scopes=scopes)
-# --- FINE DEL NUOVO BLOCCO ---
-```*   **Non dimenticare:** vai all'inizio del tuo file `bot.py` e aggiungi `import json` insieme agli altri import.
+
     except FileNotFoundError:
         # Questo errore si verifica se il file credentials.json non viene trovato.
         logger.error("SHEETS_TEST: ERRORE CRITICO! Il file 'credentials.json' non è stato trovato. Assicurati di averlo caricato su Render nella stessa directory del bot.")
