@@ -148,7 +148,7 @@ You keep track of each user's state.
 
 # --- FUNZIONI DI INTERAZIONE CON GOOGLE SHEETS (NUOVA SEZIONE) ---
 
-def test_google_sheets_connection():
+async def test_google_sheets_connection():
     """
     Funzione di test eseguita all'avvio per verificare la connessione a Google Sheets.
     Tenta di leggere il valore della cella A1 dal foglio specificato.
@@ -187,11 +187,6 @@ def test_google_sheets_connection():
         # Cattura qualsiasi altro errore imprevisto.
         logger.error(f"SHEETS_TEST: ERRORE IMPREVISTO durante la connessione a Google Sheets: {e}")
         return False
-
-# --- ESECUZIONE DEL TEST ALL'AVVIO ---
-# Aggiungi questa chiamata alla funzione alla fine del tuo script,
-# subito prima della riga 'if __name__ == "__main__":'.
-test_google_sheets_connection()
 
 # --- JOB PER LA CODA (SOLLECITI E SCADENZE) ---
 
@@ -461,6 +456,9 @@ fastapi_app = FastAPI()
 # NUOVO CODICE - CORRETTO
 @fastapi_app.on_event("startup")
 async def startup_event():
+    # Eseguiamo il nostro test di connessione come prima cosa
+    await test_google_sheets_connection() # <-- RIGA AGGIUNTA
+    
     await telegram_app.initialize()
     await telegram_app.bot.set_webhook(url=f"{WEBHOOK_URL}/{TELEGRAM_TOKEN}", allowed_updates=Update.ALL_TYPES)
     # Avviamo la JobQueue. È sicuro chiamarlo direttamente.
@@ -485,6 +483,5 @@ async def index():
     return "Ciao! Sono il server del bot, sono attivo e funzionante."
 
 # Per test locale
-test_google_sheets_connection()
 if __name__ == "__main__":
     uvicorn.run("bot:fastapi_app", host="0.0.0.0", port=8000, reload=True)
