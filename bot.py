@@ -16,6 +16,8 @@ from telegram.ext import (
 from fastapi import FastAPI, Request
 import uvicorn
 from dotenv import load_dotenv
+import gspread
+from google.oauth2.service_account import Credentials
 
 # --- CONFIGURAZIONE e VARIABILI D'AMBIENTE ---
 load_dotenv()
@@ -142,6 +144,61 @@ You keep track of each user's state.
     except Exception as e:
         logger.error(f"Errore nella chiamata ad Azure OpenAI: {e}")
         return "I'm having a little trouble connecting right now. Let me get back to you in a moment."
+
+# --- FUNZIONI DI INTERAZIONE CON GOOGLE SHEETS (NUOVA SEZIONE) ---
+
+def test_google_sheets_connection():
+    """
+    Funzione di test eseguita all'avvio per verificare la connessione a Google Sheets.
+    Tenta di leggere il valore della cella A1 dal foglio specificato.
+    """
+    # Il logger è già configurato all'inizio del file, quindi possiamo usarlo.
+    logger.info("SHEETS_TEST: Inizio del test di connessione a Google Sheets.")
+    
+    try:
+        # Definiamo gli "scopes" - i permessi che richiediamo alle API di Google.
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive.file"
+        ]
+        
+        # Carichiamo le credenziali dal file JSON che si trova nella stessa cartella.
+        creds = Credentials.from_service_account_file("credentials.json", scopes=scopes)
+        
+        # Usiamo le credenziali per autorizzare gspread.
+        client_gspread = gspread.authorize(creds)
+        
+        # Apriamo il foglio di calcolo usando il suo NOME ESATTO.
+        # Assicurati che "ARC TEAM DATI" sia scritto esattamente come il nome del tuo file.
+        spreadsheet = client_gspread.open("ARC TEAM DATI") 
+        
+        # Selezioniamo il primo foglio di lavoro all'interno del file.
+        worksheet = spreadsheet.sheet1
+        
+        # Leggiamo il valore di una cella specifica (A1) per confermare la lettura.
+        valore_cella = worksheet.acell('A1').value
+        
+        # Se tutte le righe sopra funzionano, il test è superato.
+        logger.info(f"SHEETS_TEST: SUCCESSO! Connessione stabilita. Il valore in A1 è: '{valore_cella}'")
+        return True
+
+    except FileNotFoundError:
+        # Questo errore si verifica se il file credentials.json non viene trovato.
+        logger.error("SHEETS_TEST: ERRORE CRITICO! Il file 'credentials.json' non è stato trovato. Assicurati di averlo caricato su Render nella stessa directory del bot.")
+        return False
+    except gspread.exceptions.SpreadsheetNotFound:
+        # Questo errore si verifica se il nome del foglio è sbagliato o non è stato condiviso.
+        logger.error("SHEETS_TEST: ERRORE CRITICO! Foglio 'ARC TEAM DATI' non trovato. Controlla che il nome sia corretto E che tu abbia condiviso il foglio con l'email del service account (l'email dentro credentials.json).")
+        return False
+    except Exception as e:
+        # Cattura qualsiasi altro errore imprevisto.
+        logger.error(f"SHEETS_TEST: ERRORE IMPREVISTO durante la connessione a Google Sheets: {e}")
+        return False
+
+# --- ESECUZIONE DEL TEST ALL'AVVIO ---
+# Aggiungi questa chiamata alla funzione alla fine del tuo script,
+# subito prima della riga 'if __name__ == "__main__":'.
+test_google_sheets_connection()
 
 # --- JOB PER LA CODA (SOLLECITI E SCADENZE) ---
 
@@ -435,5 +492,6 @@ async def index():
     return "Ciao! Sono il server del bot, sono attivo e funzionante."
 
 # Per test locale
+test_google_sheets_connection()
 if __name__ == "__main__":
     uvicorn.run("bot:fastapi_app", host="0.0.0.0", port=8000, reload=True)
