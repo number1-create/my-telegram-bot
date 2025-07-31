@@ -163,17 +163,17 @@ def test_google_sheets_connection():
             "https://www.googleapis.com/auth/drive.file"
         ]
         
-# 1. Leggi la variabile d'ambiente che contiene il JSON come stringa
-google_creds_json_str = os.getenv("GOOGLE_CREDENTIALS_JSON")
-if not google_creds_json_str:
-    logger.error("SHEETS_TEST: ERRORE CRITICO! La variabile d'ambiente 'GOOGLE_CREDENTIALS_JSON' non è stata trovata o è vuota.")
-    return False
-
-# 2. Converti la stringa JSON in un dizionario Python
-google_creds_dict = json.loads(google_creds_json_str)
-
-# 3. Usa il dizionario per creare le credenziali
-creds = Credentials.from_service_account_info(google_creds_dict, scopes=scopes)
+        # 1. Leggi la variabile d'ambiente che contiene il JSON come stringa
+        google_creds_json_str = os.getenv("GOOGLE_CREDENTIALS_JSON")
+        if not google_creds_json_str:
+            logger.error("SHEETS_TEST: ERRORE CRITICO! La variabile d'ambiente 'GOOGLE_CREDENTIALS_JSON' non è stata trovata o è vuota.")
+            return False
+        
+        # 2. Converti la stringa JSON in un dizionario Python
+        google_creds_dict = json.loads(google_creds_json_str)
+        
+        # 3. Usa il dizionario per creare le credenziali
+        creds = Credentials.from_service_account_info(google_creds_dict, scopes=scopes)
 
     except FileNotFoundError:
         # Questo errore si verifica se il file credentials.json non viene trovato.
