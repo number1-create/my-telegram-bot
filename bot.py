@@ -148,47 +148,126 @@ You keep track of each user's state.
 
 # --- FUNZIONI DI INTERAZIONE CON GOOGLE SHEETS (NUOVA SEZIONE) ---
 
-async def test_google_sheets_connection():
-    """
-    Funzione di test eseguita all'avvio per verificare la connessione a Google Sheets.
-    Tenta di leggere il valore della cella A1 dal foglio specificato.
-    """
-    # Il logger è già configurato all'inizio del file, quindi possiamo usarlo.
-    logger.info("SHEETS_TEST: Inizio del test di connessione a Google Sheets.")
+# --- FUNZIONI DI INTERAZIONE CON GOOGLE SHEETS (VERSIONE OPERATIVA ASINCRONA) ---
+
+# Nome del nostro foglio di lavoro
+SPREADSHEET_NAME = "ARC TEAM DATI"
+
+def get_google_creds():
+    """Carica le credenziali di Google dalla variabile d'ambiente."""
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive.file"
+    ]
+    google_creds_json_str = os.getenv("GOOGLE_CREDENTIALS_JSON")
+    if not google_creds_json_str:
+        logger.error("SHEETS_HELPER: La variabile d'ambiente 'GOOGLE_CREDENTIALS_JSON' è vuota.")
+        return None
     
     try:
-        raise ValueError("Questo è un test di errore intenzionale.")
-        # Definiamo gli "scopes" - i permessi che richiediamo alle API di Google.
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive.file"
+        google_creds_dict = json.loads(google_creds_json_str)
+        creds = Credentials.from_service_account_info(google_creds_dict, scopes=scopes)
+        return creds
+    except json.JSONDecodeError:
+        logger.error("SHEETS_HELPER: Errore nel decodificare il JSON delle credenziali. Controlla il valore incollato su Render.")
+        return None
+
+# Creiamo un gestore del client asincrono che useremo in tutte le nostre funzioni
+agc_manager = AsyncioGspreadClientManager(get_google_creds)
+
+async def find_user_by_email(email: str):
+    """
+    Cerca un utente nel foglio tramite email.
+    Restituisce un oggetto 'Cell' di gspread se trovato, altrimenti None.
+    """
+    logger.info(f"SHEETS: Inizio ricerca per email: {email}")
+    try:
+        agc = await agc_manager.authorize()
+        spreadsheet = await agc.open(SPREADSHEET_NAME)
+        worksheet = await spreadsheet.get_worksheet(0) # 0 per il primo foglio
+        
+        # ATTENZIONE: Assumiamo che l'email sia nella colonna D (la quarta colonna).
+        # Cambia il valore di 'in_column=4' se la tua colonna email è diversa (A=1, B=2, C=3, ecc.)
+        cell = await worksheet.find(email, in_column=4)
+        logger.info(f"SHEETS: Trovato utente per email '{email}' nella riga {cell.row}.")
+        return cell
+    except gspread.exceptions.CellNotFound:
+        logger.info(f"SHEETS: Nessun utente trovato con l'email '{email}'.")
+        return None
+    except Exception as e:
+        logger.error(f"SHEETS: Errore durante la ricerca dell'utente: {type(e).__name__} - {e}")
+        return None
+
+async def create_new_user(email: str, telegram_username: str, telegram_id: int):
+    """
+    Aggiunge una nuova riga per un nuovo utente al foglio.
+    """
+    logger.info(f"SHEETS: Inizio creazione nuovo utente per email: {email}")
+    try:
+        agc = await agc_manager.authorize()
+        spreadsheet = await agc.open(SPREADSHEET_NAME)
+        worksheet = await spreadsheet.get_worksheet(0)
+        
+        # PERSONALIZZA QUESTA LISTA! L'ordine deve corrispondere alle tue colonne.
+# Versione aggiornata basata sullo screenshot del foglio.
+        new_row = [
+            # Colonna A: Data RICHIESTA INGRESSO ARC Team (la lasciamo vuota, può essere riempita manualmente o con uno script del foglio)
+            "", 
+            
+            # Colonna B: Mail Pay Pal (non la conosciamo ancora, la chiediamo dopo)
+            "",
+            
+            # Colonna C: Recensori (Nome completo, non lo conosciamo ancora)
+            "", 
+            
+            # Colonna D: Mail Personale (questa la conosciamo, la passiamo alla funzione)
+            email, 
+            
+            # Colonna E: @username (la conosciamo, la passiamo alla funzione)
+            telegram_username, 
+            
+            # Colonne da F a L (lasciamo vuote)
+            "", # F
+            "", # G
+            "", # H
+            "", # I
+            "", # J
+            "", # K
+            "", # L
+            
+            # Colonna M: ABILITATO AL BOT (Impostiamo "SI" di default)
+            "SI",
+            
+            # Colonna N: ONBOARDING (Impostiamo lo stato iniziale)
+            "IN ATTESA DI TEST", 
         ]
         
-        # 1. Leggi la variabile d'ambiente che contiene il JSON come stringa
-        google_creds_json_str = os.getenv("GOOGLE_CREDENTIALS_JSON")
-        if not google_creds_json_str:
-            logger.error("SHEETS_TEST: ERRORE CRITICO! La variabile d'ambiente 'GOOGLE_CREDENTIALS_JSON' non è stata trovata o è vuota.")
-            return False
-        
-        # 2. Converti la stringa JSON in un dizionario Python
-        google_creds_dict = json.loads(google_creds_json_str)
-        
-        # 3. Usa il dizionario per creare le credenziali
-        creds = Credentials.from_service_account_info(google_creds_dict, scopes=scopes)
-
-    except FileNotFoundError:
-        # Questo errore si verifica se il file credentials.json non viene trovato.
-        logger.error("SHEETS_TEST: ERRORE CRITICO! Il file 'credentials.json' non è stato trovato. Assicurati di averlo caricato su Render nella stessa directory del bot.")
-        return False
-    except gspread.exceptions.SpreadsheetNotFound:
-        # Questo errore si verifica se il nome del foglio è sbagliato o non è stato condiviso.
-        logger.error("SHEETS_TEST: ERRORE CRITICO! Foglio 'ARC TEAM DATI' non trovato. Controlla che il nome sia corretto E che tu abbia condiviso il foglio con l'email del service account (l'email dentro credentials.json).")
-        return False
+        await worksheet.append_row(new_row)
+        logger.info(f"SHEETS: Nuovo utente creato con successo per l'email '{email}'.")
+        return True
     except Exception as e:
-        # Cattura qualsiasi altro errore imprevisto.
-        logger.error(f"SHEETS_TEST: ERRORE IMPREVISTO durante la connessione a Google Sheets: {e}")
+        logger.error(f"SHEETS: Errore durante la creazione del nuovo utente: {type(e).__name__} - {e}")
         return False
 
+async def update_user_status(row_number: int, new_status: str):
+    """
+    Aggiorna lo stato di un utente in una specifica riga.
+    """
+    logger.info(f"SHEETS: Inizio aggiornamento stato a '{new_status}' per riga {row_number}")
+    try:
+        agc = await agc_manager.authorize()
+        spreadsheet = await agc.open(SPREADSHEET_NAME)
+        worksheet = await spreadsheet.get_worksheet(0)
+        
+        # ATTENZIONE: Assumiamo che lo stato sia nella colonna N (la 14esima colonna).
+        # Cambia il valore '14' se la tua colonna stato ("ONBOARDING") è diversa.
+        await worksheet.update_cell(row_number, 14, new_status)
+        logger.info(f"SHEETS: Stato aggiornato a '{new_status}' per la riga {row_number}.")
+        return True
+    except Exception as e:
+        logger.error(f"SHEETS: Errore durante l'aggiornamento dello stato per riga {row_number}: {type(e).__name__} - {e}")
+        return False
+        
 # --- JOB PER LA CODA (SOLLECITI E SCADENZE) ---
 
 async def reminder_job(context: ContextTypes.DEFAULT_TYPE) -> None:
