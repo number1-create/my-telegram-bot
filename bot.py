@@ -182,18 +182,19 @@ async def find_user_by_email(email: str):
     """
     Cerca un utente nel foglio tramite email.
     Restituisce un oggetto 'Cell' di gspread se trovato, altrimenti None.
+    Gestisce anche gli errori comuni come foglio non trovato.
     """
     logger.info(f"SHEETS: Inizio ricerca per email: {email}")
     try:
         agc = await agc_manager.authorize()
         spreadsheet = await agc.open(SPREADSHEET_NAME)
-        worksheet = await spreadsheet.get_worksheet(0) # 0 per il primo foglio
+        worksheet = await spreadsheet.get_worksheet(0)
         
-        # ATTENZIONE: Assumiamo che l'email sia nella colonna D (la quarta colonna).
-        # Cambia il valore di 'in_column=4' se la tua colonna email è diversa (A=1, B=2, C=3, ecc.)
         cell = await worksheet.find(email, in_column=4)
-        logger.info(f"SHEETS: Trovato utente per email '{email}' nella riga {cell.row}.")
+        if cell:
+            logger.info(f"SHEETS: Trovato utente per email '{email}' nella riga {cell.row}.")
         return cell
+
     except gspread.SpreadsheetNotFound:
         logger.error(f"SHEETS: CRITICO! Il foglio con nome '{SPREADSHEET_NAME}' non è stato trovato. Controlla il nome esatto e la condivisione.")
         return None 
