@@ -194,7 +194,7 @@ async def find_user_by_email(email: str):
         cell = await worksheet.find(email, in_column=4)
         logger.info(f"SHEETS: Trovato utente per email '{email}' nella riga {cell.row}.")
         return cell
-    except gspread.exceptions.CellNotFound:
+    except gspread.CellNotFound:
         logger.info(f"SHEETS: Nessun utente trovato con l'email '{email}'.")
         return None
     except Exception as e:
