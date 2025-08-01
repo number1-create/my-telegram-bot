@@ -159,7 +159,7 @@ def get_google_creds():
     """Carica le credenziali di Google dalla variabile d'ambiente."""
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive.file"
+        "https://www.googleapis.com/auth/drive."
     ]
     google_creds_json_str = os.getenv("GOOGLE_CREDENTIALS_JSON")
     if not google_creds_json_str:
