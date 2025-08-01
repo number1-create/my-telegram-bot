@@ -153,7 +153,7 @@ You keep track of each user's state.
 # --- FUNZIONI DI INTERAZIONE CON GOOGLE SHEETS (VERSIONE OPERATIVA ASINCRONA) ---
 
 # Nome del nostro foglio di lavoro
-SPREADSHEET_NAME = "ARC TEAM DATI"
+SPREADSHEET_NAME = "TEST BOT CONNESSIONE"
 
 def get_google_creds():
     """Carica le credenziali di Google dalla variabile d'ambiente."""
