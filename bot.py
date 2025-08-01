@@ -313,14 +313,15 @@ async def handle_new_user(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
 
 # --- NUOVA FUNZIONE PER GESTIRE L'EMAIL ---
+
 async def handle_email_submission(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Gestisce la ricezione dell'email, controlla il foglio e avvia il test.
+    Gestisce la ricezione dell'email. Cerca l'utente: se lo trova, procede;
+    se non lo trova, lo crea e poi procede.
     """
     user = update.effective_user
-    email_text = update.message.text.strip().lower() # Prendiamo l'email e la mettiamo in minuscolo
+    email_text = update.message.text.strip().lower()
 
-    # Semplice validazione dell'email (può essere migliorata se necessario)
     if '@' not in email_text or '.' not in email_text.split('@')[1]:
         await update.message.reply_text("That doesn't look like a valid email address. Please try again.")
         return
@@ -328,35 +329,66 @@ async def handle_email_submission(update: Update, context: ContextTypes.DEFAULT_
     await update.message.reply_text("Perfect, thank you. One moment while I check our records...")
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     
-    logger.info(f"SHEETS_LIVE_TEST: Sto per chiamare find_user_by_email con '{email_text}'")
+    logger.info(f"SHEETS: Inizio la ricerca dell'utente con email '{email_text}'")
     user_cell = await find_user_by_email(email_text)
-    logger.info(f"SHEETS_LIVE_TEST: La chiamata a find_user_by_email è terminata.")
-    )
-
-    # 4. Assegna il link e salva i dati per il prompt dell'AI
-    assigned_link = await get_next_test_link(context)
-    context.user_data['state'] = 'awaiting_screenshot'
-    context.user_data['first_name'] = user.first_name
-    context.user_data['assigned_link'] = assigned_link
-
-    # 5. Invia il messaggio di benvenuto con le istruzioni per il test
-    welcome_message = f"""Great, I've found you, {user.first_name}!
-
-    To be added to our private Telegram channel, we first need to confirm that your Amazon account can leave reviews.
     
-    Here's what to do:
-    1. **Click this link:** {assigned_link}
-    2. Leave a 5-star, positive review.
-    3. Take a screenshot showing your submitted review.
-    4. **Reply to this message with your screenshot.**
-    
-    You have 24 hours to complete this test. I'm here to help if you have any questions!
-    """
-    await update.message.reply_text(welcome_message)
+    sheet_row_number = None
 
-    # 6. Programma i job di sollecito e scadenza
-    context.job_queue.run_once(reminder_job, 23 * 3600, chat_id=update.effective_chat.id, user_id=user.id, name=f"reminder_{user.id}", data={'first_name': user.first_name})
-    context.job_queue.run_once(expiration_job, 24 * 3600, chat_id=update.effective_chat.id, user_id=user.id, name=f"expire_{user.id}")
+    if user_cell:
+        # --- UTENTE ESISTENTE ---
+        sheet_row_number = user_cell.row
+        logger.info(f"SHEETS: Utente con email '{email_text}' trovato alla riga {sheet_row_number}. Aggiorno lo stato.")
+        await update_user_status(sheet_row_number, "TEST INVIATO")
+    else:
+        # --- NUOVO UTENTE ---
+        logger.info(f"SHEETS: Utente con email '{email_text}' non trovato. Procedo con la creazione.")
+        success = await create_new_user(
+            email=email_text,
+            telegram_username=context.user_data.get('telegram_username', f"@{user.username}"),
+            telegram_id=user.id
+        )
+        if success:
+            logger.info(f"SHEETS: Creazione riuscita. Ora cerco di nuovo l'utente per ottenere la sua riga.")
+            # Dobbiamo cercarlo di nuovo per sapere su quale riga è stato appena aggiunto
+            new_user_cell = await find_user_by_email(email_text)
+            if new_user_cell:
+                sheet_row_number = new_user_cell.row
+                logger.info(f"SHEETS: Nuovo utente trovato alla riga {sheet_row_number}.")
+            else:
+                logger.error(f"SHEETS: CRITICO! Ho creato l'utente con email '{email_text}' ma non riesco a ritrovarlo.")
+        else:
+            logger.error(f"SHEETS: CRITICO! La funzione create_new_user ha fallito per l'email '{email_text}'.")
+
+    # --- SE ABBIAMO UNA RIGA, PROCEDIAMO ---
+    if sheet_row_number:
+        context.user_data['sheet_row'] = sheet_row_number # Fondamentale per gli aggiornamenti futuri!
+
+        assigned_link = await get_next_test_link(context)
+        context.user_data['state'] = 'awaiting_screenshot'
+        context.user_data['first_name'] = user.first_name
+        context.user_data['assigned_link'] = assigned_link
+
+        welcome_message = f"""Great news, {user.first_name}! You are now registered.
+
+To be added to our private Telegram channel, we first need to confirm that your Amazon account can leave reviews.
+
+Here's what to do:
+1. **Click this link:** {assigned_link}
+2. Leave a 5-star, positive review.
+3. Take a screenshot showing your submitted review.
+4. **Reply to this message with your screenshot.**
+
+You have 24 hours to complete this test. I'm here to help if you have any questions!
+"""
+        await update.message.reply_text(welcome_message)
+
+        context.job_queue.run_once(reminder_job, 23 * 3600, chat_id=update.effective_chat.id, user_id=user.id, name=f"reminder_{user.id}", data={'first_name': user.first_name})
+        context.job_queue.run_once(expiration_job, 24 * 3600, chat_id=update.effective_chat.id, user_id=user.id, name=f"expire_{user.id}")
+    else:
+        # Se siamo qui, qualcosa è andato storto nella comunicazione con Google Sheets
+        await update.message.reply_text(
+            "I'm having some trouble accessing my records at the moment. Please try again in a little while."
+        )
 
 # --- NUOVA VERSIONE DI handle_photo ---
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
