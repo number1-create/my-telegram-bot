@@ -194,11 +194,14 @@ async def find_user_by_email(email: str):
         cell = await worksheet.find(email, in_column=4)
         logger.info(f"SHEETS: Trovato utente per email '{email}' nella riga {cell.row}.")
         return cell
+    except gspread.SpreadsheetNotFound:
+    logger.error(f"SHEETS: CRITICO! Il foglio '{SPREADSHEET_NAME}' non è stato trovato. Controlla il nome e la condivisione.")
+        return None # Ritorna None per segnalare un errore grave
     except gspread.CellNotFound:
-        logger.info(f"SHEETS: Nessun utente trovato con l'email '{email}'.")
-        return None
+        logger.info(f"SHEETS: Nessun utente trovato con l'email '{email}'. Questo è un caso normale per un nuovo utente.")
+        return None # Ritorna None, che è il comportamento atteso quando un utente non c'è
     except Exception as e:
-        logger.error(f"SHEETS: Errore durante la ricerca dell'utente: {type(e).__name__} - {e}")
+        logger.error(f"SHEETS: Errore generico durante la ricerca dell'utente: {type(e).__name__} - {e}")
         return None
 
 async def create_new_user(email: str, telegram_username: str, telegram_id: int):
