@@ -193,11 +193,13 @@ async def find_user_by_email(email: str):
             logger.info(f"SHEETS: Trovato utente per email '{email}' nella riga {cell.row}.")
         return cell
 
-    except gspread.SpreadsheetNotFound:
-        # CORREZIONE: Usiamo SPREADSHEET_URL nel messaggio di errore
-        logger.error(f"SHEETS: CRITICO! Il foglio con URL '{SPREADSHEET_URL}' non è stato trovato o non hai i permessi.")
+    except gspread.exceptions.PermissionError:
+        logger.error("SHEETS: ERRORE 403 - PERMISSION DENIED. L'API di Google Sheets è abilitata nel progetto Cloud? L'account di servizio ha i permessi di Editor?")
+        return None
+    except gspread.exceptions.SpreadsheetNotFound:
+        logger.error(f"SHEETS: CRITICO! Il foglio con URL '{SPREADSHEET_URL}' non è stato trovato.")
         return None 
-    except gspread.CellNotFound:
+    except gspread.exceptions.CellNotFound:
         logger.info(f"SHEETS: Nessun utente trovato con l'email '{email}'.")
         return None
     except Exception as e:
