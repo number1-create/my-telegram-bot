@@ -343,7 +343,7 @@ async def handle_email_submission(update: Update, context: ContextTypes.DEFAULT_
             
     except Exception as e:
         logger.error(f"TEST ACCESSO: Si è verificato un errore durante il test: {type(e).__name__} - {e}")
-        await update.message.reply_text(f"RISULTATO TEST: Il test è fallito con un errore: {type(e).__name__}")```
+            await update.message.reply_text(f"RISULTATO TEST: Il test è fallito con un errore: {type(e).__name__}")```
 
 
 # --- NUOVA FUNZIONE PER GESTIRE L'EMAIL ---
