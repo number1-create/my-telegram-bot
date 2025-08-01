@@ -154,7 +154,7 @@ You keep track of each user's state.
 
 # Nome del nostro foglio di lavoro
 #SPREADSHEET_NAME = "TEST BOT CONNESSIONE"
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1LDNgs3djywCmck7w_2ahjfFZhou8egXMStmqS48u7mI/edit?pli=1&gid=0#gid=0"
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1Wtm5UiS6Mcs-byDDDL5ZVIB_k6xGUF35QL5U33bvSLU/edit?pli=1&gid=450436997#gid=450436997"
 
 def get_google_creds():
     """Carica le credenziali di Google dalla variabile d'ambiente."""
