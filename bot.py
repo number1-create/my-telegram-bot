@@ -200,12 +200,15 @@ async def find_user_by_email(email: str):
         logger.error(f"SHEETS: CRITICO! Il foglio con nome '{SPREADSHEET_NAME}' non è stato trovato. Controlla il nome esatto e la condivisione.")
         return None 
     except gspread.CellNotFound:
-        logger.info(f"SHEETS: Nessun utente trovato con l'email '{email}'. Procedura normale per un nuovo utente.")
+         logger.error(f"SHEETS: CRITICO! Il foglio con URL '{SPREADSHEET_URL}' non è stato trovato o non hai i permessi.")
+        return None 
+    except gspread.CellNotFound:
+        logger.info(f"SHEETS: Nessun utente trovato con l'email '{email}'.")
         return None
     except Exception as e:
-        logger.error(f"SHEETS: Errore generico durante la ricerca dell'utente: {type(e).__name__} - {e}")
+        logger.error(f"SHEETS: Errore durante la ricerca via URL: {type(e).__name__} - {e}")
         return None
-        
+
 async def create_new_user(email: str, telegram_username: str, telegram_id: int):
     """
     Aggiunge una nuova riga per un nuovo utente al foglio.
