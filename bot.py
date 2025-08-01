@@ -153,7 +153,7 @@ You keep track of each user's state.
 # --- FUNZIONI DI INTERAZIONE CON GOOGLE SHEETS (VERSIONE OPERATIVA ASINCRONA) ---
 
 # Nome del nostro foglio di lavoro
-SPREADSHEET_NAME = "TEST BOT CONNESSIONE"
+SPREADSHEET_NAME = "ARC TEAM DATI"
 
 def get_google_creds():
     """Carica le credenziali di Google dalla variabile d'ambiente."""
@@ -318,32 +318,79 @@ async def handle_new_user(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
 async def handle_email_submission(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    VERSIONE DIAGNOSTICA: Non cerca un file, ma elenca TUTTI i file a cui ha accesso.
+    Gestisce la ricezione dell'email. Cerca l'utente: se lo trova, procede;
+    se non lo trova, lo crea e poi procede.
     """
     user = update.effective_user
     email_text = update.message.text.strip().lower()
+
+    if '@' not in email_text or '.' not in email_text.split('@')[1]:
+        await update.message.reply_text("That doesn't look like a valid email address. Please try again.")
+        return
+
+    await update.message.reply_text("Perfect, thank you. One moment while I check our records...")
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     
-    logger.info(f"TEST ACCESSO: Inizio il test 'Cosa vedi?' per l'utente {user.full_name}.")
-    await update.message.reply_text("Ok, sto eseguendo un test diagnostico profondo per vedere a quali file ho accesso... Un momento.")
+    logger.info(f"SHEETS: Inizio la ricerca dell'utente con email '{email_text}'")
+    user_cell = await find_user_by_email(email_text)
     
-    try:
-        agc = await agc_manager.authorize()
-        
-        # CHIEDIAMO DI ELENCARE TUTTI I FOGLI A CUI HA ACCESSO
-        file_list = await agc.list_spreadsheet_files()
-        
-        logger.info(f"TEST ACCESSO: La lista dei file a cui ho accesso è: {file_list}")
-        
-        if not file_list:
-            await update.message.reply_text("RISULTATO TEST: La lista dei file a cui ho accesso è VUOTA. Questo conferma che c'è un problema di permessi a livello di progetto/organizzazione.")
+    sheet_row_number = None
+
+    if user_cell:
+        # --- UTENTE ESISTENTE ---
+        sheet_row_number = user_cell.row
+        logger.info(f"SHEETS: Utente con email '{email_text}' trovato alla riga {sheet_row_number}. Aggiorno lo stato.")
+        await update_user_status(sheet_row_number, "TEST INVIATO")
+    else:
+        # --- NUOVO UTENTE ---
+        logger.info(f"SHEETS: Utente con email '{email_text}' non trovato. Procedo con la creazione.")
+        success = await create_new_user(
+            email=email_text,
+            telegram_username=context.user_data.get('telegram_username', f"@{user.username}"),
+            telegram_id=user.id
+        )
+        if success:
+            logger.info(f"SHEETS: Creazione riuscita. Ora cerco di nuovo l'utente per ottenere la sua riga.")
+            # Dobbiamo cercarlo di nuovo per sapere su quale riga è stato appena aggiunto
+            new_user_cell = await find_user_by_email(email_text)
+            if new_user_cell:
+                sheet_row_number = new_user_cell.row
+                logger.info(f"SHEETS: Nuovo utente trovato alla riga {sheet_row_number}.")
+            else:
+                logger.error(f"SHEETS: CRITICO! Ho creato l'utente con email '{email_text}' ma non riesco a ritrovarlo.")
         else:
-            # Estraggo solo i nomi per leggibilità
-            file_names = [f['name'] for f in file_list]
-            await update.message.reply_text(f"RISULTATO TEST: Vedo i seguenti file: {file_names}")
-            
-    except Exception as e:
-        logger.error(f"TEST ACCESSO: Si è verificato un errore durante il test: {type(e).__name__} - {e}")
-        await update.message.reply_text(f"RISULTATO TEST: Il test è fallito con un errore: {type(e).__name__}")
+            logger.error(f"SHEETS: CRITICO! La funzione create_new_user ha fallito per l'email '{email_text}'.")
+
+    # --- SE ABBIAMO UNA RIGA, PROCEDIAMO ---
+    if sheet_row_number:
+        context.user_data['sheet_row'] = sheet_row_number # Fondamentale per gli aggiornamenti futuri!
+
+        assigned_link = await get_next_test_link(context)
+        context.user_data['state'] = 'awaiting_screenshot'
+        context.user_data['first_name'] = user.first_name
+        context.user_data['assigned_link'] = assigned_link
+
+        welcome_message = f"""Great news, {user.first_name}! You are now registered.
+
+To be added to our private Telegram channel, we first need to confirm that your Amazon account can leave reviews.
+
+Here's what to do:
+1. **Click this link:** {assigned_link}
+2. Leave a 5-star, positive review.
+3. Take a screenshot showing your submitted review.
+4. **Reply to this message with your screenshot.**
+
+You have 24 hours to complete this test. I'm here to help if you have any questions!
+"""
+        await update.message.reply_text(welcome_message)
+
+        context.job_queue.run_once(reminder_job, 23 * 3600, chat_id=update.effective_chat.id, user_id=user.id, name=f"reminder_{user.id}", data={'first_name': user.first_name})
+        context.job_queue.run_once(expiration_job, 24 * 3600, chat_id=update.effective_chat.id, user_id=user.id, name=f"expire_{user.id}")
+    else:
+        # Se siamo qui, qualcosa è andato storto nella comunicazione con Google Sheets
+        await update.message.reply_text(
+            "I'm having some trouble accessing my records at the moment. Please try again in a little while."
+        )
 
 
 # --- NUOVA FUNZIONE PER GESTIRE L'EMAIL ---
