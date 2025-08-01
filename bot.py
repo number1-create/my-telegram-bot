@@ -622,6 +622,7 @@ async def startup_event():
 # NUOVO CODICE - CORRETTO
 @fastapi_app.on_event("shutdown")
 async def shutdown_event():
+    logger.info("--- TEST DI DEPLOY: STO ESEGUENDO LA VERSIONE DEL 2 AGOSTO ORE 17:15 ---")
     # Stoppiamo la JobQueue. È sicuro chiamarlo direttamente.
     await telegram_app.job_queue.stop()
     await telegram_app.shutdown()
