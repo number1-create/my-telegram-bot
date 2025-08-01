@@ -179,16 +179,13 @@ def get_google_creds():
 
 agc_manager = AsyncioGspreadClientManager(get_google_creds)
 
+# SOSTITUISCI QUESTA FUNZIONE PER CORREGGERE IL MESSAGGIO DI LOG
 async def find_user_by_email(email: str):
-    """
-    Cerca un utente nel foglio tramite email.
-    Restituisce un oggetto 'Cell' di gspread se trovato, altrimenti None.
-    Gestisce anche gli errori comuni come foglio non trovato.
-    """
-    logger.info(f"SHEETS: Inizio ricerca per email: {email}")
+    logger.info(f"SHEETS: Inizio ricerca per email con URL: {email}")
     try:
         agc = await agc_manager.authorize()
-        spreadsheet = await agc.open(SPREADSHEET_URL)
+        # Usiamo open_by_url()
+        spreadsheet = await agc.open_by_url(SPREADSHEET_URL)
         worksheet = await spreadsheet.get_worksheet(0)
         
         cell = await worksheet.find(email, in_column=4)
@@ -197,10 +194,8 @@ async def find_user_by_email(email: str):
         return cell
 
     except gspread.SpreadsheetNotFound:
-        logger.error(f"SHEETS: CRITICO! Il foglio con nome '{SPREADSHEET_NAME}' non è stato trovato. Controlla il nome esatto e la condivisione.")
-        return None 
-    except gspread.CellNotFound:
-         logger.error(f"SHEETS: CRITICO! Il foglio con URL '{SPREADSHEET_URL}' non è stato trovato o non hai i permessi.")
+        # CORREZIONE: Usiamo SPREADSHEET_URL nel messaggio di errore
+        logger.error(f"SHEETS: CRITICO! Il foglio con URL '{SPREADSHEET_URL}' non è stato trovato o non hai i permessi.")
         return None 
     except gspread.CellNotFound:
         logger.info(f"SHEETS: Nessun utente trovato con l'email '{email}'.")
