@@ -153,7 +153,8 @@ You keep track of each user's state.
 # --- FUNZIONI DI INTERAZIONE CON GOOGLE SHEETS (VERSIONE OPERATIVA ASINCRONA) ---
 
 # Nome del nostro foglio di lavoro
-SPREADSHEET_NAME = "TEST BOT CONNESSIONE"
+#SPREADSHEET_NAME = "TEST BOT CONNESSIONE"
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1LDNgs3djywCmck7w_2ahjfFZhou8egXMStmqS48u7mI/edit?pli=1&gid=0#gid=0"
 
 def get_google_creds():
     """Carica le credenziali di Google dalla variabile d'ambiente."""
@@ -187,7 +188,7 @@ async def find_user_by_email(email: str):
     logger.info(f"SHEETS: Inizio ricerca per email: {email}")
     try:
         agc = await agc_manager.authorize()
-        spreadsheet = await agc.open(SPREADSHEET_NAME)
+        spreadsheet = await agc.open(SPREADSHEET_URL)
         worksheet = await spreadsheet.get_worksheet(0)
         
         cell = await worksheet.find(email, in_column=4)
@@ -213,7 +214,7 @@ async def create_new_user(email: str, telegram_username: str, telegram_id: int):
     logger.info(f"SHEETS: Inizio creazione nuovo utente per email: {email}")
     try:
         agc = await agc_manager.authorize()
-        spreadsheet = await agc.open(SPREADSHEET_NAME)
+        spreadsheet = await agc.open(SPREADSHEET_URL)
         worksheet = await spreadsheet.get_worksheet(0)
         
 # PERSONALIZZA QUESTA LISTA! L'ordine deve corrispondere alle tue colonne.
@@ -264,7 +265,7 @@ async def update_user_status(row_number: int, new_status: str):
     logger.info(f"SHEETS: Inizio aggiornamento stato a '{new_status}' per riga {row_number}")
     try:
         agc = await agc_manager.authorize()
-        spreadsheet = await agc.open(SPREADSHEET_NAME)
+        spreadsheet = await agc.open(SPREADSHEET_URL)
         worksheet = await spreadsheet.get_worksheet(0)
         
         # ATTENZIONE: Assumiamo che lo stato sia nella colonna N (la 14esima colonna).
