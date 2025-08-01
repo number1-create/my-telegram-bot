@@ -159,7 +159,7 @@ def get_google_creds():
     """Carica le credenziali di Google dalla variabile d'ambiente."""
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive."
+        "https://www.googleapis.com/auth/drive.readonly"
     ]
     google_creds_json_str = os.getenv("GOOGLE_CREDENTIALS_JSON")
     if not google_creds_json_str:
@@ -208,6 +208,7 @@ async def find_user_by_email(email: str):
 async def create_new_user(email: str, telegram_username: str, telegram_id: int):
     """
     Aggiunge una nuova riga per un nuovo utente al foglio.
+    Questa versione include la gestione degli errori per non far crashare il bot.
     """
     logger.info(f"SHEETS: Inizio creazione nuovo utente per email: {email}")
     try:
@@ -215,7 +216,7 @@ async def create_new_user(email: str, telegram_username: str, telegram_id: int):
         spreadsheet = await agc.open(SPREADSHEET_NAME)
         worksheet = await spreadsheet.get_worksheet(0)
         
-        # PERSONALIZZA QUESTA LISTA! L'ordine deve corrispondere alle tue colonne.
+# PERSONALIZZA QUESTA LISTA! L'ordine deve corrispondere alle tue colonne.
 # Versione aggiornata basata sullo screenshot del foglio.
         new_row = [
             # Colonna A: Data RICHIESTA INGRESSO ARC Team (la lasciamo vuota, può essere riempita manualmente o con uno script del foglio)
