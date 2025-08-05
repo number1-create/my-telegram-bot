@@ -20,6 +20,10 @@ import gspread
 from google.oauth2.service_account import Credentials
 from gspread_asyncio import AsyncioGspreadClientManager
 import json
+import asyncio
+import re
+import datetime
+
 
 
 # --- CONFIGURAZIONE e VARIABILI D'AMBIENTE ---
@@ -157,22 +161,22 @@ You keep track of each user's state.
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1Wtm5UiS6Mcs-byDDDL5ZVIB_k6xGUF35QL5U33bvSLU/edit?pli=1&gid=450436997#gid=450436997"
 
 def get_google_creds():
-    """Carica le credenziali di Google dalla variabile d'ambiente."""
+    """Carica le credenziali di Google dal file credenziali.json."""
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive.readonly"
     ]
-    google_creds_json_str = os.getenv("GOOGLE_CREDENTIALS_JSON")
-    if not google_creds_json_str:
-        logger.error("SHEETS_HELPER: La variabile d'ambiente 'GOOGLE_CREDENTIALS_JSON' è vuota.")
-        return None
-    
     try:
-        google_creds_dict = json.loads(google_creds_json_str)
-        creds = Credentials.from_service_account_info(google_creds_dict, scopes=scopes)
+        # Questa riga legge il file che hai messo nella cartella
+        creds_base = Credentials.from_service_account_file("credenziali.json")
+        creds = creds_base.with_scopes(scopes)
+        logger.info("SHEETS_HELPER: Credenziali caricate correttamente dal file credenziali.json")
         return creds
-    except json.JSONDecodeError:
-        logger.error("SHEETS_HELPER: Errore nel decodificare il JSON delle credenziali. Controlla il valore incollato su Render.")
+    except FileNotFoundError:
+        logger.error("SHEETS_HELPER: CRITICO! Il file 'credenziali.json' non è stato trovato.")
+        return None
+    except Exception as e:
+        logger.error(f"SHEETS_HELPER: Errore nel caricare le credenziali: {e}")
         return None
 
 # Creiamo un gestore del client asincrono che useremo in tutte le nostre funzioni
@@ -206,22 +210,21 @@ async def find_user_by_email(email: str):
         logger.error(f"SHEETS: Errore durante la ricerca via URL: {type(e).__name__} - {e}")
         return None
 
-async def create_new_user(email: str, telegram_username: str, telegram_id: int):
+async def create_new_user(signup_date: str, email: str, telegram_username: str, telegram_id: int):
     """
-    Aggiunge una nuova riga per un nuovo utente al foglio.
-    Questa versione include la gestione degli errori per non far crashare il bot.
+    Aggiunge una nuova riga per un nuovo utente e restituisce il numero di riga.
     """
     logger.info(f"SHEETS: Inizio creazione nuovo utente per email: {email}")
     try:
         agc = await agc_manager.authorize()
-        spreadsheet = await agc.open(SPREADSHEET_URL)
+        spreadsheet = await agc.open_by_url(SPREADSHEET_URL)
         worksheet = await spreadsheet.get_worksheet(0)
         
 # PERSONALIZZA QUESTA LISTA! L'ordine deve corrispondere alle tue colonne.
 # Versione aggiornata basata sullo screenshot del foglio.
-        new_row = [
-            # Colonna A: Data RICHIESTA INGRESSO ARC Team (la lasciamo vuota, può essere riempita manualmente o con uno script del foglio)
-            "", 
+        new_row_data = [
+            # Colonna A: Data RICHIESTA INGRESSO ARC Team
+            signup_date, 
             
             # Colonna B: Mail Pay Pal (non la conosciamo ancora, la chiediamo dopo)
             "",
@@ -248,15 +251,22 @@ async def create_new_user(email: str, telegram_username: str, telegram_id: int):
             "",
             
             # Colonna N: ONBOARDING (Impostiamo lo stato iniziale)
-            "IN ATTESA DI TEST", 
+            "LINK REVIEW TEST INVIATO", 
         ]
         
-        await worksheet.append_row(new_row)
-        logger.info(f"SHEETS: Nuovo utente creato con successo per l'email '{email}'.")
-        return True
+        # 1. Trova la prima riga vuota contando le righe esistenti
+        all_rows = await worksheet.get_all_values()
+        next_free_row = len(all_rows) + 1
+        
+        # 2. Usa insert_row per inserire i dati in una riga specifica
+        await worksheet.insert_row(new_row_data, index=next_free_row, value_input_option='USER_ENTERED')
+        
+        logger.info(f"SHEETS: Nuovo utente creato con successo per '{email}' alla riga {next_free_row}.")
+        return next_free_row # Restituisci il numero di riga che abbiamo calcolato
+
     except Exception as e:
         logger.error(f"SHEETS: Errore durante la creazione del nuovo utente: {type(e).__name__} - {e}")
-        return False
+        return None
 
 async def update_user_status(row_number: int, new_status: str):
     """
@@ -265,7 +275,7 @@ async def update_user_status(row_number: int, new_status: str):
     logger.info(f"SHEETS: Inizio aggiornamento stato a '{new_status}' per riga {row_number}")
     try:
         agc = await agc_manager.authorize()
-        spreadsheet = await agc.open(SPREADSHEET_URL)
+        spreadsheet = await agc.open_by_url(SPREADSHEET_URL)
         worksheet = await spreadsheet.get_worksheet(0)
         
         # ATTENZIONE: Assumiamo che lo stato sia nella colonna N (la 14esima colonna).
@@ -288,10 +298,26 @@ async def reminder_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 async def expiration_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Imposta lo stato dell'utente a 'expired' dopo 24 ore."""
+    """Imposta lo stato interno a 'expired' E aggiorna il foglio Google."""
     job = context.job
+    user_id = job.user_id
+    sheet_row_to_update = job.data.get('sheet_row')
+
+    # Aggiorniamo comunque lo stato interno del bot, è buona pratica
+    context.user_data['state'] = 'expired'
+    logger.info(f"Bot state for user {user_id} set to 'expired'.")
+
+    # La nuova azione fondamentale: aggiorniamo il foglio Google
+    if sheet_row_to_update:
+        logger.info(f"Updating Google Sheet row {sheet_row_to_update} to 'SCADUTO (BOT)'.")
+        # Usiamo la funzione che già esiste per aggiornare una cella
+        await update_user_status(sheet_row_to_update, "SCADUTO (BOT)")
+    else:
+        logger.warning(f"Job 'expire_{user_id}' ran but no sheet_row was found in job data.")
+
     # Accediamo ai dati dell'utente tramite il persistence layer
     user_data = await context.application.persistence.get_user_data()
+    
     if job.user_id in user_data and user_data[job.user_id].get('state') == 'awaiting_screenshot':
         user_data[job.user_id]['state'] = 'expired'
         await context.application.persistence.update_user_data(job.user_id, user_data[job.user_id])
@@ -306,6 +332,10 @@ async def handle_new_user(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     """
     user = update.effective_user
     logger.info(f"Nuovo contatto: {user.full_name} (ID: {user.id}). Inizio procedura di onboarding.")
+
+    now = datetime.datetime.now()
+    signup_date = now.strftime("%Y-%m-%d %H:%M:%S")
+    context.user_data['signup_date'] = signup_date
     
     # 1. Impostiamo uno stato intermedio per sapere che stiamo aspettando l'email
     context.user_data['state'] = 'awaiting_email'
@@ -319,8 +349,8 @@ async def handle_new_user(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
 async def handle_email_submission(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Gestisce la ricezione dell'email. Cerca l'utente: se lo trova, procede;
-    se non lo trova, lo crea e poi procede.
+    Gestisce la ricezione dell'email. Cerca l'utente. Se non lo trova,
+    lo crea e USA DIRETTAMENTE il numero di riga restituito.
     """
     user = update.effective_user
     email_text = update.message.text.strip().lower()
@@ -340,35 +370,56 @@ async def handle_email_submission(update: Update, context: ContextTypes.DEFAULT_
     if user_cell:
         # --- UTENTE ESISTENTE ---
         sheet_row_number = user_cell.row
-        logger.info(f"SHEETS: Utente con email '{email_text}' trovato alla riga {sheet_row_number}. Aggiorno lo stato.")
-        await update_user_status(sheet_row_number, "TEST INVIATO")
+        logger.info(f"SHEETS: Utente con email '{email_text}' trovato alla riga {sheet_row_number}. Aggiorno i dati.")
+        try:
+            # Catturiamo i dati aggiornati
+            signup_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            telegram_username = context.user_data.get('telegram_username', f"@{user.username}")
+
+            # Connettiamoci al foglio per aggiornare più celle
+            agc = await agc_manager.authorize()
+            spreadsheet = await agc.open_by_url(SPREADSHEET_URL)
+            worksheet = await spreadsheet.get_worksheet(0)
+
+            # Eseguiamo gli aggiornamenti sulle colonne specifiche
+            await worksheet.update_cell(sheet_row_number, 1, signup_date) # Colonna A: Data
+            await worksheet.update_cell(sheet_row_number, 5, telegram_username) # Colonna E: @username
+            await worksheet.update_cell(sheet_row_number, 14, "LINK REVIEW TEST INVIATO") # Colonna N: Stato
+
+            logger.info(f"SHEETS: Dati aggiornati per la riga {sheet_row_number}.")
+
+        except Exception as e:
+            logger.error(f"SHEETS: Errore durante l'aggiornamento dei dati per la riga {sheet_row_number}: {e}")
+            # Se fallisce, il processo continua comunque, ma senza aggiornare il foglio
     else:
         # --- NUOVO UTENTE ---
         logger.info(f"SHEETS: Utente con email '{email_text}' non trovato. Procedo con la creazione.")
-        success = await create_new_user(
+        
+        # Unica chiamata per creare l'utente e ottenere il numero di riga.
+        # Recuperiamo la data salvata nella memoria dell'utente
+        signup_date = context.user_data.get('signup_date', 'DATA NON TROVATA')
+
+        new_row_number = await create_new_user(
+            signup_date=signup_date, # <-- NUOVO ARGOMENTO
             email=email_text,
             telegram_username=context.user_data.get('telegram_username', f"@{user.username}"),
             telegram_id=user.id
         )
-        if success:
-            logger.info(f"SHEETS: Creazione riuscita. Ora cerco di nuovo l'utente per ottenere la sua riga.")
-            # Dobbiamo cercarlo di nuovo per sapere su quale riga è stato appena aggiunto
-            new_user_cell = await find_user_by_email(email_text)
-            if new_user_cell:
-                sheet_row_number = new_user_cell.row
-                logger.info(f"SHEETS: Nuovo utente trovato alla riga {sheet_row_number}.")
-            else:
-                logger.error(f"SHEETS: CRITICO! Ho creato l'utente con email '{email_text}' ma non riesco a ritrovarlo.")
+        
+        # Controlliamo se abbiamo ricevuto un numero di riga valido.
+        if new_row_number:
+            logger.info(f"SHEETS: Creazione riuscita. Utilizzo la nuova riga: {new_row_number}.")
+            sheet_row_number = new_row_number
         else:
-            logger.error(f"SHEETS: CRITICO! La funzione create_new_user ha fallito per l'email '{email_text}'.")
+            logger.error(f"SHEETS: CRITICO! La funzione create_new_user non ha restituito un numero di riga per l'email '{email_text}'.")
 
-    # --- SE ABBIAMO UNA RIGA, PROCEDIAMO ---
+    # --- SE ABBIAMO UNA RIGA (O TROVATA O APPENA CREATA), PROCEDIAMO ---
     if sheet_row_number:
-        context.user_data['sheet_row'] = sheet_row_number # Fondamentale per gli aggiornamenti futuri!
-
-        assigned_link = await get_next_test_link(context)
+        context.user_data['sheet_row'] = sheet_row_number
         context.user_data['state'] = 'awaiting_screenshot'
         context.user_data['first_name'] = user.first_name
+
+        assigned_link = await get_next_test_link(context)
         context.user_data['assigned_link'] = assigned_link
 
         welcome_message = f"""Great news, {user.first_name}! You are now registered.
@@ -386,9 +437,12 @@ You have 24 hours to complete this test. I'm here to help if you have any questi
         await update.message.reply_text(welcome_message)
 
         context.job_queue.run_once(reminder_job, 23 * 3600, chat_id=update.effective_chat.id, user_id=user.id, name=f"reminder_{user.id}", data={'first_name': user.first_name})
-        context.job_queue.run_once(expiration_job, 24 * 3600, chat_id=update.effective_chat.id, user_id=user.id, name=f"expire_{user.id}")
+        job_data = {
+    'sheet_row': sheet_row_number 
+        }
+        context.job_queue.run_once(expiration_job, 24 * 3600, chat_id=update.effective_chat.id, user_id=user.id, name=f"expire_{user.id}", data=job_data)
     else:
-        # Se siamo qui, qualcosa è andato storto nella comunicazione con Google Sheets
+        # Se siamo qui, qualcosa è andato storto nella comunicazione con Google Sheets.
         await update.message.reply_text(
             "I'm having some trouble accessing my records at the moment. Please try again in a little while."
         )
@@ -516,6 +570,73 @@ Screenshot is attached below.
         except Exception as e:
             logger.error(f"Failed to send final notification to admin: {e}")
 
+# --- NUOVO BLOCCO DA USARE ---
+
+    # Attendi un paio di secondi per non bombardare l'utente
+    await asyncio.sleep(2)
+
+    # Definiamo il testo del messaggio con link semplici.
+    link_canale = "https://t.me/+rgLNV3jOYaplNTQ0"
+    lucianomattioli21 = "https://t.me/lucianomattioli21"
+
+
+
+    # Testo del messaggio da inserire nel codice
+    follow_up_text = f"""Congratulations, you've passed the test! 🎉 Welcome to the ARC Team.
+
+    Here are the final, crucial steps to get fully activated. Please follow them in order:
+
+    *STEP 1: UNLOCK YOUR ACCOUNT (Mandatory)*
+
+    To activate your ability to receive books, you MUST send a quick message to the manager, Luciano. This is a vital step because of Telegram's limits; without your first message, he can't contact you.
+
+    ➡️ **What to do:**
+    1.  Click here to open a chat with him: {lucianomattioli21}
+    2.  Send him this exact message: "Hi Luciano, I've passed the bot test and I'm ready to start."
+
+    Luciano will then confirm your activation. You cannot proceed to the next steps without his green light.
+
+    ---
+
+    *STEP 2: JOIN THE OFFICIAL TEAM CHANNEL*
+
+    This is our main workspace. Once you are in, find the pinned message at the top.
+
+    ➡️ **What to do:**
+    Click here to join the group: {link_canale}
+
+    ---
+
+    *STEP 3: ACTIVATE THE ARC TEAM BOT*
+
+    Inside the group's pinned message, you will find a link to our main ARC Team Bot. This is the bot that will assign you the books.
+
+    ➡️ **What to do:**
+    1.  Find the pinned message in the group and click the link to the bot.
+    2.  Once in the chat with the bot, type `/start` or press "Start" in the menu.
+    3.  The bot will then start assigning you books every 48 hours.
+
+    ---
+
+    *STEP 4: YOUR WORKFLOW FOR EACH BOOK*
+
+    This is how you'll operate for every book you receive.
+
+    ➡️ **What to do:**
+    1.  After writing a review, you **MUST** use the `/submit` command in the bot's menu (or type it). This action starts the 48-hour countdown for your next book.
+    2.  **Attention:** If you do not use `/submit`, the timer will not start, and you will not receive new books.
+    3.  Finally, send the link or screenshot of your published review directly to the manager, @Lucianomattioli21.
+
+    You've got this! Complete Step 1 now to get started. Let's go! 💪
+    """
+    
+    # Inviamo il messaggio di follow-up in modo sicuro
+    try:
+        await update.message.reply_text(text=follow_up_text)
+        logger.info(f"Follow-up message sent successfully to user {user.id}.")
+    except Exception as e:
+            logger.error(f"CRITICAL: Failed to send follow-up message to user {user.id}: {e}")            
+
 # Per far funzionare l'inoltro della foto, facciamo una piccola aggiunta a handle_photo
 # Torna a handle_photo e aggiungi questa riga dopo aver definito l'utente:
 # context.user_data['photo_message_id'] = update.message.message_id
@@ -550,6 +671,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 # --- NUOVA VERSIONE DEL dispatcher ---
 async def dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Funzione principale che smista i messaggi in base allo stato."""
+    print(">>> MESSAGGIO RICEVUTO! <<<") # <-- AGGIUNGI QUESTA RIGA
     user = update.effective_user
     user_state = context.user_data.get('state', 'new_user')
 
@@ -560,14 +682,13 @@ async def dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_state == 'new_user' and update.message.text:
         await handle_new_user(update, context)
         return
-        
-  # --- NUOVO BLOCCO PER GESTIRE LA SOTTOMISSIONE DELL'EMAIL ---
     elif user_state == 'awaiting_email':
+    # --- NUOVO BLOCCO PER GESTIRE LA SOTTOMISSIONE DELL'EMAIL ---
         if update.message.text:
             await handle_email_submission(update, context)
         else:
             await update.message.reply_text("Please send me your email address to continue.")
-            
+        return
     # Stato: in attesa dello screenshot
     if user_state == 'awaiting_screenshot':
         if update.message.photo:
@@ -613,33 +734,14 @@ telegram_app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, dispatch
 fastapi_app = FastAPI()
 
 # NUOVO CODICE - CORRETTO
-@fastapi_app.on_event("startup")
-async def startup_event():
+
+def main() -> None:
+    """Avvia il bot in modalità polling, ignorando il server web."""
+    logger.info("AVVIO IN MODALITÀ POLLING")
     
-    await telegram_app.initialize()
-    await telegram_app.bot.set_webhook(url=f"{WEBHOOK_URL}/{TELEGRAM_TOKEN}", allowed_updates=Update.ALL_TYPES)
-    # Avviamo la JobQueue. È sicuro chiamarlo direttamente.
-    await telegram_app.job_queue.start()
-    logger.info("Bot started and webhook set.")
+    # Comando per avviare il bot in polling e cancellare i messaggi vecchi
+    telegram_app.run_polling(drop_pending_updates=True)
 
-# NUOVO CODICE - CORRETTO
-@fastapi_app.on_event("shutdown")
-async def shutdown_event():
-    logger.info("--- TEST DI DEPLOY: STO ESEGUENDO LA VERSIONE DEL 2 AGOSTO ORE 17:15 ---")
-    # Stoppiamo la JobQueue. È sicuro chiamarlo direttamente.
-    await telegram_app.job_queue.stop()
-    await telegram_app.shutdown()
-    logger.info("Bot shutdown.")
-
-@fastapi_app.post(f"/{TELEGRAM_TOKEN}")
-async def telegram_webhook(request: Request):
-    await telegram_app.process_update(Update.de_json(await request.json(), telegram_app.bot))
-    return {"status": "ok"}
-
-@fastapi_app.get("/")
-async def index():
-    return "Ciao! Sono il server del bot, sono attivo e funzionante."
-
-# Per test locale
+# Questo avvia la funzione main quando esegui 'py bot.py'
 if __name__ == "__main__":
-    uvicorn.run("bot:fastapi_app", host="0.0.0.0", port=8000, reload=True)
+    main()
